@@ -1,0 +1,109 @@
+apply plugin: 'com.android.application'
+
+/*
+ * Release signing.
+ *
+ * Nothing secret lives in this file or anywhere else under version control.
+ * Credentials come from android/keystore.properties (git-ignored), or from the
+ * environment, which is what CI should use:
+ *
+ *   NARROWCAST_KEYSTORE        absolute path to the .keystore file
+ *   NARROWCAST_KEYSTORE_PASSWORD
+ *   NARROWCAST_KEY_ALIAS       defaults to "narrowcast"
+ *   NARROWCAST_KEY_PASSWORD    defaults to the keystore password
+ *
+ * With neither present the release build is simply left unsigned, so a debug
+ * build still works on a machine that has no key.
+ */
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+def prop = { String key, String env, String fallback ->
+    def value = keystoreProperties.getProperty(key) ?: System.getenv(env)
+    return (value == null || value.trim().isEmpty()) ? fallback : value.trim()
+}
+
+def storePath = prop('storeFile', 'NARROWCAST_KEYSTORE', null)
+def storeFileOrNull = null
+if (storePath != null) {
+    def candidate = new File(storePath)
+    if (!candidate.isAbsolute()) {
+        candidate = rootProject.file(storePath)
+    }
+    if (candidate.exists()) {
+        storeFileOrNull = candidate
+    } else {
+        logger.warn("Narrowcast: keystore not found at ${candidate}; the release build will be unsigned.")
+    }
+}
+
+android {
+    namespace = "app.narrowcast.focus"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "app.narrowcast.focus"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (storeFileOrNull != null) {
+                def storePass = prop('storePassword', 'NARROWCAST_KEYSTORE_PASSWORD', null)
+                storeFile storeFileOrNull
+                storePassword storePass
+                keyAlias prop('keyAlias', 'NARROWCAST_KEY_ALIAS', 'narrowcast')
+                keyPassword prop('keyPassword', 'NARROWCAST_KEY_PASSWORD', storePass)
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (storeFileOrNull != null) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

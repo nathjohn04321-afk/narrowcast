@@ -1,0 +1,15 @@
+node_modules/
+.DS_Store
+*.log
+
+# Signing material. Never commit these: anyone holding them can ship an update
+# that Android will accept as genuine Narrowcast.
+android/keystore.properties
+*.keystore
+*.jks
+
+# Build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

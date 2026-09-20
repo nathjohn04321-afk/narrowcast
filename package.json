@@ -1,0 +1,33 @@
+{
+  "name": "narrowcast",
+  "version": "1.0.0",
+  "description": "Narrowcast — YouTube, one goal at a time. No Shorts. Android wrapper.",
+  "scripts": {
+    "build": "node scripts/build-www.js",
+    "sync": "npm run build && cap sync android",
+    "assets": "capacitor-assets generate --android --iconBackgroundColor #0F1E24 --iconBackgroundColorDark #0F1E24 --splashBackgroundColor #0F1E24 --splashBackgroundColorDark #0F1E24",
+    "apk:debug": "npm run sync && cd android && ./gradlew assembleDebug",
+    "apk:release": "npm run sync && cd android && ./gradlew assembleRelease"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nathjohn04321-afk/narrowcast.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nathjohn04321-afk/narrowcast/issues"
+  },
+  "homepage": "https://github.com/nathjohn04321-afk/narrowcast#readme",
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2",
+    "sharp": "^0.35.4"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2"
+  },
+  "private": true
+}

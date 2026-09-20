@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Narrowcast</string>
+    <string name="title_activity_main">Narrowcast</string>
+    <string name="package_name">app.narrowcast.focus</string>
+    <string name="custom_url_scheme">app.narrowcast.focus</string>
+</resources>
