@@ -13,3 +13,8 @@ android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
+
+# Installed on demand by tools/app-check/run.sh
+tools/app-check/node_modules/
+tools/app-check/package.json
+tools/app-check/package-lock.json

@@ -106,6 +106,17 @@
   .note{ margin-top:8px; font-size:14px; }
   .flag{ display:inline-block; font-size:12px; font-weight:600; color:var(--warn); border:1px solid var(--warn); border-radius:5px; padding:1px 6px; margin-left:6px; }
 
+  .itemacts{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .panel{ margin-top:10px; border-left:2px solid var(--edge); padding-left:11px; }
+  .frame{ position:relative; width:100%; padding-top:56.25%; background:#000; border:1px solid var(--edge); border-radius:8px; overflow:hidden; }
+  .frame iframe{ position:absolute; top:0; left:0; width:100%; height:100%; border:0; }
+  .notelist{ margin:0 0 10px; padding:0; list-style:none; }
+  .noterow{ padding:8px 0; border-top:1px dotted var(--edge); }
+  .noterow:first-child{ border-top:0; }
+  .notewhen{ display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+  .notebody{ margin-top:2px; font-size:14px; white-space:pre-wrap; word-break:break-word; }
+  .sugg{ display:block; width:100%; text-align:left; background:var(--sunk); border:1px solid var(--edge); border-radius:8px; padding:9px 11px; margin-bottom:6px; font-size:14px; }
+
   .doors{ display:flex; gap:8px; flex-wrap:wrap; }
   .door{ background:transparent; border:1px solid var(--edge); border-radius:8px; padding:9px 14px; font-size:14px; text-decoration:none; }
 
@@ -309,6 +320,25 @@
   var state = { goals:{}, sources:{}, queue:{}, config:{ activeGoalId:null } };
   var editingGoal = null;
 
+  /* Until now a video held one note in a single string. Fold any of those into the
+     dated list, so nothing written before this version is lost, and so an old backup
+     restores correctly too. */
+  function migrateQueue(queue){
+    if (!queue) return false;
+    var changed = false;
+    Object.keys(queue).forEach(function(id){
+      var q = queue[id];
+      if (!q || typeof q !== 'object') return;
+      if (!Array.isArray(q.notes)){ q.notes = []; changed = true; }
+      if (typeof q.note === 'string'){
+        if (q.note.trim()) q.notes.unshift({ id: uid(), text: q.note.trim(), at: q.created || Date.now() });
+        delete q.note;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   function load(){
     try {
       var raw = localStorage.getItem(KEY);
@@ -317,6 +347,9 @@
       if (!o || typeof o !== 'object') return;
       ['goals','sources','queue'].forEach(function(c){ if (o[c]) state[c] = o[c]; });
       if (o.config) state.config = o.config;
+      // Write the upgraded shape back straight away, so storage stops carrying
+      // the old field and a later save cannot be the first thing that fixes it.
+      if (migrateQueue(state.queue)) save();
     } catch(e){}
   }
   function save(){
@@ -417,6 +450,138 @@
     });
   }
 
+  /* Which item is playing, and which panel each item has open. Kept out of the
+     saved data: it is where you are looking, not something worth keeping. */
+  var playingId = null;
+  var openPanel = {};
+  var suggestionCache = {};
+
+  function whenText(ts){
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }); }
+    catch(e){ return ''; }
+  }
+
+  /* Saves one queue item without redrawing the page. A full render would tear out
+     the iframe and restart the video, which is exactly wrong while taking notes. */
+  function editQueueItem(id, mutate){
+    var cur = state.queue[id]; if (!cur) return;
+    var next = Object.assign({}, cur);
+    next.notes = (cur.notes || []).slice();
+    mutate(next);
+    state.queue[id] = next;
+    save();
+    renderDataLine();
+  }
+
+  function buildPlayer(q){
+    var wrap = el('div','panel');
+    var frame = el('div','frame');
+    var f = document.createElement('iframe');
+    f.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(q.vid) + '?rel=0&modestbranding=1&playsinline=1';
+    f.title = q.title || 'Video';
+    f.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen';
+    f.setAttribute('allowfullscreen','');
+    f.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
+    frame.appendChild(f);
+    wrap.appendChild(frame);
+    wrap.appendChild(el('p','hint','Playing here needs a connection, and you are signed out, so this does not touch your history or Watch later. If the owner blocked embedding, use Open in YouTube.'));
+    return wrap;
+  }
+
+  function buildNotes(q, refresh){
+    var wrap = el('div','panel');
+    var notes = ((state.queue[q.id] || {}).notes || []).slice();
+    if (notes.length){
+      var ul = el('ul','notelist');
+      notes.sort(function(a,b){ return (b.at||0) - (a.at||0); }).forEach(function(n){
+        var li = el('li','noterow');
+        var head = el('div','notewhen');
+        head.appendChild(el('span', null, whenText(n.at)));
+        var del = el('button','btn danger','Delete');
+        del.addEventListener('click', function(){
+          editQueueItem(q.id, function(next){
+            next.notes = next.notes.filter(function(x){ return x.id !== n.id; });
+          });
+          refresh();
+        });
+        head.appendChild(del);
+        li.appendChild(head);
+        var body = el('div','notebody', n.text);
+        body.setAttribute('role','button');
+        body.setAttribute('tabindex','0');
+        body.title = 'Tap to edit';
+        function editNote(){
+          var ed = el('textarea','note');
+          ed.value = n.text;
+          li.replaceChild(ed, body);
+          ed.focus();
+          ed.addEventListener('blur', function(){
+            var t = ed.value.trim();
+            editQueueItem(q.id, function(next){
+              next.notes = t
+                ? next.notes.map(function(x){ return x.id === n.id ? Object.assign({}, x, { text:t }) : x; })
+                : next.notes.filter(function(x){ return x.id !== n.id; });
+            });
+            refresh();
+          });
+        }
+        body.addEventListener('click', editNote);
+        body.addEventListener('keydown', function(e){
+          if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); editNote(); }
+        });
+        li.appendChild(body);
+        ul.appendChild(li);
+      });
+      wrap.appendChild(ul);
+    } else {
+      wrap.appendChild(el('p','empty-state','Nothing written down for this one yet.'));
+    }
+    var ta = el('textarea','note');
+    ta.placeholder = 'What did this actually give you?';
+    wrap.appendChild(ta);
+    var add = el('button','btn quiet btn-sm','Add note');
+    add.style.marginTop = '8px';
+    add.addEventListener('click', function(){
+      var text = ta.value.trim();
+      if (!text){ toast('Write the note first.'); return; }
+      editQueueItem(q.id, function(next){
+        next.notes.push({ id: uid(), text: text, at: Date.now() });
+      });
+      ta.value = '';
+      refresh();
+    });
+    wrap.appendChild(add);
+    return wrap;
+  }
+
+  function buildSuggestions(q, refresh){
+    var wrap = el('div','panel');
+    if (!suggestionCache[q.id]) suggestionCache[q.id] = relatedTo(q);
+    var list = suggestionCache[q.id];
+    if (!list.length){
+      wrap.appendChild(el('p','hint','Give this video a title, or add topic words to the focus, and angles can be built from them.'));
+      return wrap;
+    }
+    wrap.appendChild(el('p','hint','Built on this phone from the focus and the video title. Each one opens a length-filtered YouTube search.'));
+    list.forEach(function(item){
+      var b = el('button','sugg');
+      var s = el('strong', null, item.q); s.style.display='block'; s.style.fontWeight='600';
+      b.appendChild(s);
+      var n = el('small', null, item.note); n.style.color='var(--muted)';
+      b.appendChild(n);
+      b.addEventListener('click', function(){ $('q').value = item.q; launch(item.q); });
+      wrap.appendChild(b);
+    });
+    var again = el('button','btn quiet btn-sm','Different set');
+    again.addEventListener('click', function(){
+      suggestionCache[q.id] = relatedTo(q);
+      refresh();
+    });
+    wrap.appendChild(again);
+    return wrap;
+  }
+
   function renderQueue(){
     var g = activeGoal(); if (!g) return;
     var box = $('queueList'); box.textContent = '';
@@ -425,30 +590,83 @@
     list.sort(function(a,b){ return (a.done?1:0) - (b.done?1:0); });
     list.forEach(function(q){
       var row = el('div','item' + (q.done ? ' done' : ''));
+
       var tick = el('button','tick');
       tick.setAttribute('aria-pressed', String(!!q.done));
       tick.setAttribute('aria-label', q.done ? 'Mark as not watched' : 'Mark as watched');
-      tick.addEventListener('click', function(){
-        var d = Object.assign({}, state.queue[q.id]); d.done = !d.done; put('queue', q.id, d);
-      });
+
       var grow = el('div','grow');
       var t = el('div','ttl', q.title || 'Untitled');
       if (q.wasShort) t.appendChild(el('span','flag','was a Short'));
       grow.appendChild(t);
-      grow.appendChild(el('div','meta', q.done ? 'Watched' : 'Waiting'));
-      var note = el('textarea','note');
-      note.placeholder = 'What did this actually give you?';
-      note.value = q.note || '';
-      note.addEventListener('blur', function(){
-        var cur = state.queue[q.id]; if (!cur || (cur.note||'') === note.value) return;
-        var d = Object.assign({}, cur); d.note = note.value; put('queue', q.id, d);
+      var meta = el('div','meta', q.done ? 'Watched' : 'Waiting');
+      grow.appendChild(meta);
+
+      // Ticking watched must not restart a video that is playing above it.
+      tick.addEventListener('click', function(){
+        var now = !(state.queue[q.id] || {}).done;
+        editQueueItem(q.id, function(next){ next.done = now; });
+        tick.setAttribute('aria-pressed', String(now));
+        tick.setAttribute('aria-label', now ? 'Mark as not watched' : 'Mark as watched');
+        row.classList.toggle('done', now);
+        meta.textContent = now ? 'Watched' : 'Waiting';
       });
-      grow.appendChild(note);
-      var w = el('button','btn quiet btn-sm','Watch');
-      w.addEventListener('click', function(){ open('https://www.youtube.com/watch?v=' + q.vid); });
-      var d = el('button','btn danger','Remove');
-      d.addEventListener('click', function(){ drop('queue', q.id); });
-      row.appendChild(tick); row.appendChild(grow); row.appendChild(w); row.appendChild(d);
+
+      var acts = el('div','itemacts');
+      var playBtn = el('button','btn quiet btn-sm', playingId === q.id ? 'Stop' : 'Play here');
+      var openBtn = el('button','btn quiet btn-sm','Open in YouTube');
+      var noteBtn = el('button','btn quiet btn-sm','Notes');
+      var suggBtn = el('button','btn quiet btn-sm','Related');
+      var delBtn = el('button','btn danger','Remove');
+      acts.appendChild(playBtn); acts.appendChild(openBtn);
+      acts.appendChild(noteBtn); acts.appendChild(suggBtn); acts.appendChild(delBtn);
+      grow.appendChild(acts);
+
+      var playerHost = el('div');
+      var panelHost = el('div');
+      grow.appendChild(playerHost);
+      grow.appendChild(panelHost);
+
+      function noteCount(){
+        var n = ((state.queue[q.id] || {}).notes || []).length;
+        noteBtn.textContent = n ? 'Notes (' + n + ')' : 'Notes';
+      }
+      function drawPanel(){
+        panelHost.textContent = '';
+        if (openPanel[q.id] === 'notes') panelHost.appendChild(buildNotes(q, function(){ drawPanel(); noteCount(); }));
+        else if (openPanel[q.id] === 'related') panelHost.appendChild(buildSuggestions(q, drawPanel));
+        noteBtn.setAttribute('aria-pressed', String(openPanel[q.id] === 'notes'));
+        suggBtn.setAttribute('aria-pressed', String(openPanel[q.id] === 'related'));
+      }
+      function drawPlayer(){
+        playerHost.textContent = '';
+        if (playingId === q.id) playerHost.appendChild(buildPlayer(q));
+        playBtn.textContent = playingId === q.id ? 'Stop' : 'Play here';
+      }
+
+      playBtn.addEventListener('click', function(){
+        // One player at a time, so a forgotten tab is never left running.
+        playingId = (playingId === q.id) ? null : q.id;
+        if (playingId !== q.id) { drawPlayer(); return; }
+        renderQueue();
+      });
+      openBtn.addEventListener('click', function(){ open('https://www.youtube.com/watch?v=' + q.vid); });
+      noteBtn.addEventListener('click', function(){
+        openPanel[q.id] = openPanel[q.id] === 'notes' ? null : 'notes';
+        drawPanel();
+      });
+      suggBtn.addEventListener('click', function(){
+        openPanel[q.id] = openPanel[q.id] === 'related' ? null : 'related';
+        drawPanel();
+      });
+      delBtn.addEventListener('click', function(){
+        if (playingId === q.id) playingId = null;
+        delete openPanel[q.id]; delete suggestionCache[q.id];
+        drop('queue', q.id);
+      });
+
+      noteCount(); drawPlayer(); drawPanel();
+      row.appendChild(tick); row.appendChild(grow);
       box.appendChild(row);
     });
   }
@@ -504,23 +722,83 @@
     for (var i=a.length-1;i>0;i--){ var j = Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; }
     return a;
   }
-  function buildAngles(){
-    var g = activeGoal(); if (!g) return [];
-    var keys = (g.keywords && g.keywords.length) ? g.keywords.slice() : [g.name];
-    var langs = g.lang === 'id' ? ['id'] : g.lang === 'en' ? ['en'] : g.lang === 'mix' ? ['id','en'] : ['en','id'];
+  /* Angles for a video you have already watched: where to go next, rather than
+     where to start. Same machinery, different questions. */
+  var FOLLOWUPS = {
+    en: [
+      ['{k} advanced techniques','The level above what you just watched'],
+      ['{k} common problems and fixes','What breaks once you actually start'],
+      ['what to learn before {k}','The groundwork this assumed you had'],
+      ['{k} compared to alternatives','How it stands against other approaches'],
+      ['{k} full walkthrough long version','The whole thing end to end, unhurried'],
+      ['{k} results after one year','How it holds up further down the road'],
+      ['{k} questions answered','Someone experienced taking questions'],
+      ['{k} demonstration in the field','Watching it work outside a studio']
+    ],
+    id: [
+      ['teknik lanjutan {k}','Tingkat di atas yang baru saja ditonton'],
+      ['masalah umum {k} dan solusinya','Yang sering gagal setelah mulai praktek'],
+      ['dasar sebelum belajar {k}','Bekal yang dianggap sudah dimiliki'],
+      ['perbandingan {k} dengan cara lain','Bagaimana dibanding pendekatan lain'],
+      ['{k} praktek lengkap durasi panjang','Dikerjakan dari awal sampai selesai'],
+      ['hasil {k} setelah satu tahun','Bagaimana bertahan dalam jangka panjang'],
+      ['tanya jawab {k} dengan praktisi','Pertanyaan dijawab yang sudah menjalankan'],
+      ['demonstrasi {k} di lapangan','Melihatnya bekerja di kondisi nyata']
+    ]
+  };
+
+  function langsFor(g){
+    return g.lang === 'id' ? ['id'] : g.lang === 'en' ? ['en'] : g.lang === 'mix' ? ['id','en'] : ['en','id'];
+  }
+
+  function pickAngles(keys, langs, count, sets){
     var pool = [];
     langs.forEach(function(L){
       keys.forEach(function(k){
-        PATTERNS[L].forEach(function(p){ pool.push({ q: p[0].replace('{k}', k), note: p[1] }); });
+        (sets[L] || []).forEach(function(p){ pool.push({ q: p[0].replace('{k}', k), note: p[1] }); });
       });
     });
     shuffle(pool);
     var seen = {}, out = [];
-    for (var i=0;i<pool.length && out.length<8;i++){
+    for (var i=0;i<pool.length && out.length<count;i++){
       if (seen[pool[i].q]) continue;
       seen[pool[i].q] = 1; out.push(pool[i]);
     }
     return out;
+  }
+
+  function buildAngles(){
+    var g = activeGoal(); if (!g) return [];
+    var keys = (g.keywords && g.keywords.length) ? g.keywords.slice() : [g.name];
+    return pickAngles(keys, langsFor(g), 8, PATTERNS);
+  }
+
+  /* Pulls the few words in a title that carry the subject, so suggestions follow the
+     video rather than only the focus. No network, no lookup: just the text you typed. */
+  var STOPWORDS = {
+    the:1,and:1,for:1,with:1,from:1,that:1,this:1,your:1,you:1,how:1,what:1,why:1,when:1,
+    into:1,onto:1,about:1,using:1,use:1,make:1,made:1,get:1,best:1,easy:1,full:1,part:1,
+    video:1,tutorial:1,guide:1,review:1,episode:1,official:1,
+    dan:1,untuk:1,dengan:1,dari:1,yang:1,ini:1,itu:1,cara:1,adalah:1,pada:1,bisa:1,
+    agar:1,supaya:1,tanpa:1,lengkap:1,mudah:1,bagian:1,penjelasan:1
+  };
+  function titleWords(title){
+    return String(title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9À-ɏ\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(function(w){ return w.length > 3 && !STOPWORDS[w]; })
+      .slice(0, 3);
+  }
+
+  function relatedTo(q){
+    var g = activeGoal(); if (!g) return [];
+    var seeds = titleWords(q.title);
+    (g.keywords && g.keywords.length ? g.keywords : [g.name]).forEach(function(k){
+      if (k) seeds.push(k);
+    });
+    if (!seeds.length) return [];
+    return pickAngles(seeds, langsFor(g), 6, FOLLOWUPS);
   }
   function renderAngles(){
     var box = $('angleBox'); box.textContent = '';
@@ -558,6 +836,7 @@
           if (o[c]) Object.keys(o[c]).forEach(function(id){ state[c][id] = o[c][id]; });
         });
         if (o.config && o.config.activeGoalId) state.config.activeGoalId = o.config.activeGoalId;
+        migrateQueue(state.queue);
         save(); lastGoalId = null; render();
         toast('Backup restored.');
       } catch(e){ toast('That file is not a Narrowcast backup.'); }
@@ -613,7 +892,7 @@
     var g = activeGoal(); if (!g) return;
     var parsed = videoIdFrom($('qUrl').value);
     if (!parsed){ toast('That does not look like a YouTube link.'); return; }
-    put('queue', uid(), { goalId:g.id, vid:parsed.id, wasShort:parsed.wasShort, title:$('qTitle').value.trim(), note:'', done:false, created:Date.now() });
+    put('queue', uid(), { goalId:g.id, vid:parsed.id, wasShort:parsed.wasShort, title:$('qTitle').value.trim(), notes:[], done:false, created:Date.now() });
     $('qUrl').value=''; $('qTitle').value='';
     if (parsed.wasShort) toast('Saved as a normal video, not a Short.');
   });

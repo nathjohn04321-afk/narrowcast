@@ -64,8 +64,18 @@ storage for local files. If you use this route, take a backup file often
 - **Build search angles** turns your topic words into eight different search phrases,
   in Indonesian, English or both, depending on the focus. Tap one to launch it.
 - **Channels you trust** open on the channel's Videos tab, which never lists Shorts.
-- **Queue** is where a video goes when it looks worth watching but not right now. Paste
-  a Shorts link and it gets converted into a normal video link.
+- **Queue** is your watch list for the focus you're in. Paste a link and it lands there;
+  paste a Shorts link and it gets converted into a normal video link. Each video has
+  four things:
+  - **Play here** opens a player inside the app, and **Open in YouTube** hands it over
+    the way it always did. Use whichever suits the video. Playing here needs a
+    connection and you are signed out, so it leaves no trace in your history.
+  - **Notes** keeps as many dated notes per video as you want, not one box. Tap any note
+    to edit it. Notes survive while a video is playing, so you can write as you watch.
+  - **Related** builds follow-up search angles from the video's title and your focus
+    words, on the phone, with no connection. They are searches, not recommendations:
+    each one opens YouTube with the length filter already applied.
+  - The tick marks it watched and drops it down the list.
 - **Doors** are the four YouTube entry points that don't put the recommendation feed in
   front of you. The home page is deliberately missing.
 

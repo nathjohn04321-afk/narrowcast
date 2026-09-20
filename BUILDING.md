@@ -115,8 +115,13 @@ somewhere you will still have in five years, and keep the password with it.
 
 ## What was changed, and why
 
-`index.html`, `manifest.webmanifest`, `sw.js` and the icons are **byte-identical** to
-what you supplied. Every fix lives in native code beside them.
+`manifest.webmanifest`, `sw.js` and the icons are **byte-identical** to what you
+supplied, and every Android fix lives in native code beside them rather than in the page.
+
+`index.html` was byte-identical too until the queue gained a player, dated notes and
+suggestions. Those are changes to the app itself, not workarounds for Android, so they
+had to go in the page. Nothing that was already there was restructured: the additions
+sit alongside the existing code and reuse its helpers.
 
 ### External links leave the app
 
@@ -165,6 +170,39 @@ generates, with only a JDK and no device:
 ```bash
 ./tools/routing-check/run.sh
 ```
+
+### The queue plays, keeps notes, and suggests where to go next
+
+The watch list grew three things, and one of them changes a native rule.
+
+**Play here** drops a `youtube-nocookie.com` embed into the item. The iframe is only
+created when the button is pressed, so nothing reaches YouTube until you ask it to. One
+player runs at a time. This forced a change in `NarrowcastWebViewClient`: it now ignores
+anything that is not a main-frame navigation. Without that, Capacitor's own link
+handling would treat the embed as a link leaving the app and bounce the whole video out
+to the YouTube app the instant it loaded. **Open in YouTube** sits beside it and behaves
+as it always did, so the choice is per video.
+
+**Notes** became a dated list instead of one box. Data written by the old version is
+migrated on load: a `note` string becomes the first entry in `notes`, and the upgraded
+shape is written straight back to storage so an old backup restores correctly too.
+Adding a note saves that one item without redrawing the page, because a full redraw
+would tear out the iframe and restart the video you are taking notes on.
+
+**Related** builds follow-up search angles from the video title plus the focus keywords,
+using the same offline pattern machinery as "Build search angles". It suggests searches,
+not videos: with no network there is nothing to look anything up against. Each suggestion
+opens a length-filtered YouTube search, so Shorts stay out.
+
+Run the browser checks for all of this with:
+
+```bash
+./tools/app-check/run.sh
+```
+
+That serves the app locally, blocks every other request, and asserts the migration, the
+notes, the suggestions, the player, and that nothing but the Google Fonts stylesheet
+leaves on its own.
 
 ### Backup export writes a real file
 
@@ -226,8 +264,9 @@ So these are **unverified on a device** and should be checked on the first insta
 What *was* verified here, without a device: the routing decision table runs green
 against the real generated URLs; every Java source type-checks against the Android and
 Capacitor APIs it uses; the injected JavaScript and every XML resource parse; and the
-web assets are byte-identical from the repository root through `www/` into the APK's
-asset folder.
+web assets are identical from the repository root through `www/` into the APK's asset
+folder. The app's own behaviour is covered by `tools/app-check`, which drives it in a
+real browser at four phone widths with every outbound request blocked.
 
 ## The `sp=` filter, separately from Android
 
@@ -265,6 +304,7 @@ assets/                                               icon and splash sources
 scripts/build-www.js                                  refreshes www/
 scripts/make-keystore.sh                              creates the signing key
 tools/routing-check/                                  runnable link-routing test, JDK only
+tools/app-check/                                      browser test of the app itself
 android/app/src/main/java/app/narrowcast/focus/
   MainActivity.java                                   wires the WebView up
   ExternalLinks.java                                  browser-vs-app decision

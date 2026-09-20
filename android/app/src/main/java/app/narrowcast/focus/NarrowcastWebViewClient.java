@@ -21,6 +21,15 @@ public class NarrowcastWebViewClient extends BridgeWebViewClient {
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+        // The queue's "Play here" option is a YouTube embed in an iframe. Subframe
+        // navigation has to stay in the page: Capacitor's own handling would send it
+        // to Android, and the whole video would bounce out to the YouTube app the
+        // moment the player loaded. Only what the person navigates to at the top
+        // level counts as leaving Narrowcast.
+        if (!request.isForMainFrame()) {
+            return false;
+        }
+
         Uri url = request.getUrl();
         if (ExternalLinks.isWeb(url) && !isAppOrigin(url)) {
             if (ExternalLinks.open(bridge.getActivity(), url)) {
