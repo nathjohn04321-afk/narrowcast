@@ -1,0 +1,116 @@
+name: Build APK
+
+# Builds the installable APK on GitHub's runners, which have the Android SDK that
+# a local machine may not. The result is uploaded as a workflow artifact, which is
+# visible only to people who can already see this repository's Actions tab. Nothing
+# is published and no release is created.
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Build
+    runs-on: ubuntu-latest
+
+    env:
+      # Secrets cannot be read inside an `if:`, so the decision is made once here.
+      HAS_KEYSTORE: ${{ secrets.NARROWCAST_KEYSTORE_BASE64 != '' }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          mgr="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$mgr" ] || mgr="$(command -v sdkmanager)"
+          echo "using $mgr"
+          yes | "$mgr" --licenses >/dev/null 2>&1 || true
+          "$mgr" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" >/dev/null
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Copy the web app into the native project
+        run: |
+          npm run build
+          npx cap sync android
+
+      - name: Check the link routing rules
+        run: ./tools/routing-check/run.sh
+
+      - name: Build the debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # Signing only happens once NARROWCAST_KEYSTORE_BASE64 and
+      # NARROWCAST_KEYSTORE_PASSWORD exist as repository secrets. Until then the
+      # debug APK above is the whole output and the build still succeeds.
+      - name: Restore the signing key
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.NARROWCAST_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/narrowcast.keystore"
+          test -s "$RUNNER_TEMP/narrowcast.keystore"
+
+      - name: Build the signed release APK
+        if: env.HAS_KEYSTORE == 'true'
+        working-directory: android
+        env:
+          NARROWCAST_KEYSTORE: ${{ runner.temp }}/narrowcast.keystore
+          NARROWCAST_KEYSTORE_PASSWORD: ${{ secrets.NARROWCAST_KEYSTORE_PASSWORD }}
+          NARROWCAST_KEY_ALIAS: ${{ secrets.NARROWCAST_KEY_ALIAS || 'narrowcast' }}
+          NARROWCAST_KEY_PASSWORD: ${{ secrets.NARROWCAST_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Collect the APKs
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/narrowcast-debug.apk
+          signed=android/app/build/outputs/apk/release/app-release.apk
+          if [ -f "$signed" ]; then cp "$signed" out/narrowcast-release.apk; fi
+
+          {
+            echo "### Narrowcast APK"
+            echo
+            echo "| file | size |"
+            echo "| --- | --- |"
+            for f in out/*.apk; do
+              echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1) |"
+            done
+            echo
+            echo "Commit \`${GITHUB_SHA:0:7}\`. Download it from the Artifacts section of this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: narrowcast-apk
+          path: out/*.apk
+          if-no-files-found: error

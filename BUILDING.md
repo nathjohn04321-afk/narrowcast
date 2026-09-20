@@ -4,13 +4,53 @@ This repository now contains a complete Capacitor Android project that bundles t
 app inside the APK. It does not load anything from a remote URL, so it keeps working if
 the site it came from disappears.
 
-**The APK itself was not produced here.** The machine this was built on cannot reach
-`dl.google.com`, which is where the Android SDK and the Android Gradle Plugin live, and
-it has no KVM so it cannot run an emulator either. Details are in
-[What could not be done here](#what-could-not-be-done-here). Everything else is finished
-and waiting for a machine with SDK access.
+The APK was **not** produced on the machine that wrote this code. That machine cannot
+reach `dl.google.com`, which serves the Android SDK and the Android Gradle Plugin, and
+it has no KVM, so it could not run an emulator either. Details are in
+[What could not be done here](#what-could-not-be-done-here).
+
+There are three ways to get from here to something you can actually open, in rough
+order of how little you need installed.
 
 ---
+
+## Build it on GitHub, with no computer
+
+`.github/workflows/build-apk.yml` builds the APK on GitHub's runners, which already
+have the Android SDK. Every push runs it; you can also start one by hand from the
+**Actions** tab, **Build APK**, **Run workflow**.
+
+When the run finishes, open it and download **narrowcast-apk** from the Artifacts
+section at the bottom. It arrives as a zip containing `narrowcast-debug.apk`. Unzip it,
+move the `.apk` to the phone, and tap it. Android asks once for permission to install
+from that app; allow it, then install.
+
+Artifacts are visible only to people who can see this repository's Actions tab, and
+they expire after 90 days. Nothing is published anywhere.
+
+To have CI produce a *signed release* APK as well, add these repository secrets under
+**Settings, Secrets and variables, Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `NARROWCAST_KEYSTORE_BASE64` | `base64 -w0 narrowcast.keystore` |
+| `NARROWCAST_KEYSTORE_PASSWORD` | the password you chose |
+| `NARROWCAST_KEY_ALIAS` | `narrowcast`, unless you changed it |
+| `NARROWCAST_KEY_PASSWORD` | the key password, if different |
+
+Until those exist the workflow just builds the debug APK and succeeds.
+
+## Use it as a web app instead
+
+The app was a working web app before it was an Android project, and still is. Nothing
+needs building. Turn on **Settings, Pages**, source **Deploy from a branch**, branch
+`claude/new-session-5zm6ro`, folder `/ (root)`. A minute later it is live at
+`https://nathjohn04321-afk.github.io/narrowcast/`.
+
+Open that on the phone in Chrome and use the menu's **Install app** or **Add to Home
+screen**. You get the funnel icon, no browser chrome, and offline support, which is
+every checklist item except the Downloads behaviour, where the browser handles the
+backup file its own way. `README.md` covers the other hosting routes.
 
 ## Build it
 
