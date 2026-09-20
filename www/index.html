@@ -117,6 +117,22 @@
   .notebody{ margin-top:2px; font-size:14px; white-space:pre-wrap; word-break:break-word; }
   .sugg{ display:block; width:100%; text-align:left; background:var(--sunk); border:1px solid var(--edge); border-radius:8px; padding:9px 11px; margin-bottom:6px; font-size:14px; }
 
+  .vid{ display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-top:1px dotted var(--edge); }
+  .vid:first-of-type{ border-top:0; }
+  .vid .thumbwrap{ position:relative; flex:0 0 112px; }
+  .vid .thumb{ display:block; width:112px; aspect-ratio:16/9; object-fit:cover; background:var(--sunk); border:1px solid var(--edge); border-radius:6px; }
+  .vid .len{ position:absolute; right:3px; bottom:3px; background:rgba(0,0,0,.82); color:#fff; font-size:11px; font-weight:600; line-height:1.4; padding:0 4px; border-radius:3px; }
+  .vid .grow{ flex:1; min-width:0; }
+  .vid .vttl{ font-weight:600; font-size:14.5px; line-height:1.35; word-break:break-word; }
+  .vid .vmeta{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .vid .vacts{ display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+  .busy{ color:var(--muted); font-size:14px; padding:8px 0; }
+  .fail{ color:var(--warn); font-size:14px; padding:8px 0; }
+  @media (max-width:400px){
+    .vid .thumbwrap{ flex-basis:96px; }
+    .vid .thumb{ width:96px; }
+  }
+
   .doors{ display:flex; gap:8px; flex-wrap:wrap; }
   .door{ background:transparent; border:1px solid var(--edge); border-radius:8px; padding:9px 14px; font-size:14px; text-decoration:none; }
 
@@ -181,14 +197,15 @@
       <h2 class="sec">Send me somewhere useful</h2>
       <div class="launcher">
         <input type="text" id="q" placeholder="What do you want to know right now?" autocomplete="off">
-        <button class="btn tight" id="goBtn">Open on YouTube</button>
+        <button class="btn tight" id="goBtn">Search</button>
       </div>
+      <p class="hint" id="keyPrompt"></p>
       <div class="row" style="margin-top:12px">
         <label class="field"><span>Length</span>
           <select id="fDur">
             <option value="2">Over 20 min &mdash; deep</option>
             <option value="3">4 to 20 min &mdash; practical</option>
-            <option value="0">Any length (Shorts can slip in)</option>
+            <option value="0">Any length</option>
           </select></label>
         <label class="field"><span>Uploaded</span>
           <select id="fUp">
@@ -208,8 +225,10 @@
       <div style="margin-top:14px">
         <button class="btn quiet btn-sm" id="angleBtn">Build search angles</button>
         <button class="btn quiet btn-sm hidden" id="angleMore">Different set</button>
+        <button class="btn quiet btn-sm" id="ytBtn">Open this on YouTube</button>
       </div>
       <div id="angleBox" style="margin-top:12px"></div>
+      <div id="results" style="margin-top:14px"></div>
     </section>
 
     <section id="secSources">
@@ -219,7 +238,7 @@
         <input type="text" id="srcInput" placeholder="@channelhandle or a channel URL">
         <button class="btn quiet tight" id="srcAdd">Add channel</button>
       </div>
-      <p class="hint">These open the channel&rsquo;s Videos tab, which never shows Shorts.</p>
+      <p class="hint" id="sourceHint"></p>
     </section>
 
     <section id="secQueue">
@@ -240,7 +259,23 @@
         <a class="door" target="_blank" rel="noopener" href="https://www.youtube.com/feed/playlists">Your playlists</a>
         <a class="door" target="_blank" rel="noopener" href="https://www.youtube.com/feed/history">History</a>
       </div>
-      <p class="hint">The YouTube home page is the one place where the algorithm outranks you. These four don&rsquo;t.</p>
+      <p class="hint"><strong>These four leave the app.</strong> They are tied to your Google account, so they can only open in YouTube &mdash; nothing else here does. The YouTube home page is the one place where the algorithm outranks you, and it is deliberately missing.</p>
+    </section>
+
+    <section id="secKey">
+      <h2 class="sec">YouTube connection</h2>
+      <p class="empty-state" id="keyState"></p>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="apiKey" placeholder="Paste your YouTube Data API key" autocomplete="off" spellcheck="false">
+        <button class="btn quiet tight" id="keySave">Save key</button>
+        <button class="btn danger tight" id="keyClear">Remove</button>
+      </div>
+      <p class="hint">
+        Without a key the app still works, it just hands searches and channels to YouTube instead of showing them here.
+        A key is free: make a project at <strong>console.cloud.google.com</strong>, enable <strong>YouTube Data API v3</strong>,
+        then create an API key under Credentials. The free allowance is 10,000 units a day, which is about 90 searches;
+        opening a channel costs 2.
+      </p>
     </section>
 
     <section id="secData">
@@ -251,7 +286,7 @@
         <button class="btn quiet btn-sm tight" id="impBtn">Restore from backup</button>
         <input type="file" id="impFile" accept="application/json,.json" class="hidden">
       </div>
-      <p class="hint">Clearing your browser&rsquo;s site data wipes this app. Keep a backup somewhere.</p>
+      <p class="hint">Clearing your browser&rsquo;s site data wipes this app. Keep a backup somewhere. The backup file also carries your YouTube key, so it restores onto a new phone in one go &mdash; treat the file as private.</p>
     </section>
 
   </main>
@@ -315,6 +350,172 @@
   }
   function open(url){ window.open(url, '_blank', 'noopener'); }
 
+  /* ---- YouTube Data API ----
+     Only ever used when a key has been pasted in. Without one the app behaves
+     exactly as it always did and hands things to YouTube instead. Shorts are
+     three minutes or less, so anything at or under that is dropped everywhere. ---- */
+  var API = 'https://youtube.googleapis.com/youtube/v3/';
+  var SHORT_MAX = 180;
+
+  function apiKey(){ return String(state.config.apiKey || '').trim(); }
+  function hasKey(){ return apiKey().length > 0; }
+
+  function apiGet(path, params){
+    if (!hasKey()) return Promise.reject(new Error('no key'));
+    var q = [];
+    Object.keys(params).forEach(function(k){
+      var v = params[k];
+      if (v === undefined || v === null || v === '') return;
+      q.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+    });
+    q.push('key=' + encodeURIComponent(apiKey()));
+    return fetch(API + path + '?' + q.join('&')).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(body){
+        if (r.ok) return body;
+        var err = body.error || {};
+        var e = new Error(err.message || ('HTTP ' + r.status));
+        e.status = r.status;
+        e.reason = ((err.errors || [])[0] || {}).reason || '';
+        throw e;
+      });
+    });
+  }
+
+  function apiProblem(e){
+    if (!e) return 'Something went wrong.';
+    if (e.message === 'no key') return 'Add a YouTube key below to see results here.';
+    switch (e.reason){
+      case 'quotaExceeded':
+      case 'dailyLimitExceeded':
+        return 'Your key has used up today’s free allowance. It resets at midnight Pacific time. Until then, use Open this on YouTube.';
+      case 'keyInvalid':
+      case 'badRequest':
+        return 'That key was rejected. Check you copied all of it.';
+      case 'accessNotConfigured':
+        return 'This key’s project does not have YouTube Data API v3 switched on yet.';
+      case 'ipRefererBlocked':
+        return 'This key is restricted and will not accept requests from the app. Remove the restriction, or allow this app.';
+    }
+    if (e.status === 403) return 'YouTube refused that key. Check its restrictions and that the API is enabled.';
+    if (e.status === 404) return 'YouTube has nothing at that address.';
+    return 'No answer from YouTube. Check your connection.';
+  }
+
+  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+  function parseDuration(iso){
+    var m = /^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(iso || ''));
+    if (!m) return 0;
+    return (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0);
+  }
+  function fmtDuration(sec){
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h ? (h + ':' + pad2(m) + ':' + pad2(s)) : (m + ':' + pad2(s));
+  }
+  function agoText(iso){
+    var t = Date.parse(iso || '');
+    if (!t) return '';
+    var d = Math.floor((Date.now() - t) / 86400000);
+    if (d <= 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d < 30) return d + ' days ago';
+    if (d < 365){ var mo = Math.round(d / 30); return mo + (mo === 1 ? ' month ago' : ' months ago'); }
+    var y = Math.round(d / 365);
+    return y + (y === 1 ? ' year ago' : ' years ago');
+  }
+
+  /* Turns the API's shapes into the one shape the list renderer understands. */
+  function toVideos(items){
+    return (items || []).map(function(it){
+      var sn = it.snippet || {};
+      var id = it.id && it.id.videoId ? it.id.videoId
+             : (sn.resourceId && sn.resourceId.videoId) ? sn.resourceId.videoId
+             : (typeof it.id === 'string' ? it.id : '');
+      var th = ((sn.thumbnails || {}).medium || {}).url || ('https://i.ytimg.com/vi/' + id + '/mqdefault.jpg');
+      return {
+        id: id,
+        title: sn.title || 'Untitled',
+        channel: sn.channelTitle || '',
+        published: sn.publishedAt || '',
+        seconds: it.contentDetails ? parseDuration(it.contentDetails.duration) : null,
+        thumb: th
+      };
+    }).filter(function(v){ return v.id; });
+  }
+
+  /* Durations only come from videos.list, so the ids are sent back for them, and
+     that is also what makes leaving Shorts out possible at all. */
+  function withDurations(vids){
+    var ids = vids.map(function(v){ return v.id; }).slice(0, 50);
+    if (!ids.length) return Promise.resolve([]);
+    return apiGet('videos', { part: 'contentDetails,snippet', id: ids.join(',') }).then(function(body){
+      var byId = {};
+      toVideos(body.items).forEach(function(v){ byId[v.id] = v; });
+      return vids.map(function(v){ return byId[v.id] || v; })
+                 .filter(function(v){ return v.seconds === null || v.seconds > SHORT_MAX; });
+    });
+  }
+
+  /* Works out a channel id and its uploads playlist, and remembers both on the
+     saved channel so later visits cost one call instead of three. */
+  function resolveChannel(src){
+    var saved = state.sources[src.id] || {};
+    if (saved.uploads) return Promise.resolve(saved.uploads);
+
+    var handle = (src.label || '').replace(/^@/, '');
+    var byId = /youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)/.exec(src.url || '');
+    var lookup = byId
+      ? { part: 'contentDetails,snippet', id: byId[1] }
+      : { part: 'contentDetails,snippet', forHandle: '@' + handle };
+
+    return apiGet('channels', lookup)
+      .then(function(body){
+        if (body.items && body.items.length) return body;
+        // Older channels answer to a username rather than a handle.
+        return apiGet('channels', { part: 'contentDetails,snippet', forUsername: handle });
+      })
+      .then(function(body){
+        var item = (body.items || [])[0];
+        if (!item) throw new Error('channel not found');
+        var uploads = (((item.contentDetails || {}).relatedPlaylists) || {}).uploads;
+        if (!uploads) throw new Error('channel not found');
+        var next = Object.assign({}, state.sources[src.id], {
+          channelId: item.id,
+          uploads: uploads,
+          title: (item.snippet || {}).title || src.label
+        });
+        state.sources[src.id] = next;
+        save();
+        return uploads;
+      });
+  }
+
+  function channelVideos(src){
+    return resolveChannel(src)
+      .then(function(uploads){
+        return apiGet('playlistItems', { part: 'snippet', playlistId: uploads, maxResults: 30 });
+      })
+      .then(function(body){ return withDurations(toVideos(body.items)); });
+  }
+
+  function searchVideos(query){
+    var g = activeGoal();
+    var dur = $('fDur').value, up = $('fUp').value, sort = $('fSort').value;
+    var since = null;
+    var days = up === '5' ? 365 : up === '4' ? 30 : up === '3' ? 7 : 0;
+    if (days) since = new Date(Date.now() - days * 86400000).toISOString();
+
+    return apiGet('search', {
+      part: 'snippet',
+      type: 'video',
+      q: query,
+      maxResults: 25,
+      order: sort === '2' ? 'date' : sort === '3' ? 'viewCount' : 'relevance',
+      videoDuration: dur === '2' ? 'long' : dur === '3' ? 'medium' : 'any',
+      publishedAfter: since,
+      relevanceLanguage: g && (g.lang === 'id' || g.lang === 'en') ? g.lang : null
+    }).then(function(body){ return withDurations(toVideos(body.items)); });
+  }
+
   /* ---- storage: this device only ---- */
   var KEY = 'narrowcast.v1';
   var state = { goals:{}, sources:{}, queue:{}, config:{ activeGoalId:null } };
@@ -374,7 +575,7 @@
   function render(){
     var cur = activeGoal();
     if (cur && cur.id !== lastGoalId){ lastGoalId = cur.id; $('fDur').value = String(cur.dur || 2); }
-    renderNow(); renderGoals(); renderFilterNote(); renderSources(); renderQueue(); renderDataLine();
+    renderKey(); renderNow(); renderGoals(); renderFilterNote(); renderSources(); renderQueue(); renderDataLine();
     var g = activeGoal();
     ['secTune','secSources','secQueue'].forEach(function(id){ $(id).classList.toggle('hidden', !g); });
   }
@@ -426,11 +627,20 @@
 
   function renderFilterNote(){
     var d = $('fDur').value, note = $('filterNote');
+    if (hasKey()){
+      // Results are filtered here by real duration, so even "any length" is safe.
+      note.textContent = 'Anything three minutes or under is dropped from these results, so Shorts cannot appear.';
+      note.style.color = 'var(--muted)';
+      return;
+    }
     note.textContent = d === '0'
       ? 'No length filter, so Shorts can appear in these results.'
       : 'Shorts are 3 minutes or less, so a length filter leaves them out entirely.';
     note.style.color = d === '0' ? 'var(--warn)' : 'var(--muted)';
   }
+
+  var openSource = null;
+  var sourceCache = {};
 
   function renderSources(){
     var g = activeGoal(); if (!g) return;
@@ -439,13 +649,70 @@
     if (!list.length){ box.appendChild(el('p','empty-state','No channels here yet. Add the two or three people who actually know this subject.')); return; }
     list.forEach(function(s){
       var row = el('div','item'), grow = el('div','grow');
-      grow.appendChild(el('div','ttl', s.label));
-      grow.appendChild(el('div','meta','Opens the Videos tab'));
-      var o = el('button','btn quiet btn-sm','Open');
-      o.addEventListener('click', function(){ open(s.url); });
-      var d = el('button','btn danger','Remove');
-      d.addEventListener('click', function(){ drop('sources', s.id); });
-      row.appendChild(grow); row.appendChild(o); row.appendChild(d);
+      grow.appendChild(el('div','ttl', s.title || s.label));
+      grow.appendChild(el('div','meta', hasKey() ? 'Browse the videos without leaving' : 'Opens the Videos tab on YouTube'));
+
+      var acts = el('div','itemacts');
+      var browse = el('button','btn quiet btn-sm', openSource === s.id ? 'Hide' : 'Browse');
+      var out = el('button','btn quiet btn-sm','Open on YouTube');
+      var del = el('button','btn danger','Remove');
+      if (hasKey()) acts.appendChild(browse);
+      acts.appendChild(out); acts.appendChild(del);
+      grow.appendChild(acts);
+
+      var panel = el('div','panel');
+      var listBox = el('div');
+      var footer = el('div');
+      panel.appendChild(listBox); panel.appendChild(footer);
+      grow.appendChild(panel);
+      row.appendChild(grow);
+
+      function drawPanel(){
+        listBox.textContent = ''; footer.textContent = '';
+        if (openSource !== s.id){
+          panel.classList.add('hidden');
+          browse.textContent = 'Browse';
+          return;
+        }
+        panel.classList.remove('hidden');
+        browse.textContent = 'Hide';
+
+        if (sourceCache[s.id]){
+          renderVideoList(listBox, sourceCache[s.id], 'src:' + s.id);
+          var again = el('button','btn quiet btn-sm','Refresh');
+          again.addEventListener('click', function(){ delete sourceCache[s.id]; drawPanel(); });
+          footer.appendChild(again);
+          return;
+        }
+
+        listBox.appendChild(el('p','busy','Asking YouTube for the latest videos…'));
+        channelVideos(s).then(function(vids){
+          if (openSource !== s.id) return;
+          sourceCache[s.id] = vids;
+          // Redraw the whole list, not just this panel: resolving the channel also
+          // learned its real name, and the row is still showing the handle.
+          renderSources();
+        }).catch(function(e){
+          if (openSource !== s.id) return;
+          listBox.textContent = '';
+          listBox.appendChild(el('p','fail', (e && e.message === 'channel not found')
+            ? 'Could not find that channel. Check the handle, then try again.'
+            : apiProblem(e)));
+        });
+      }
+
+      browse.addEventListener('click', function(){
+        openSource = openSource === s.id ? null : s.id;
+        renderSources();
+      });
+      out.addEventListener('click', function(){ open(s.url); });
+      del.addEventListener('click', function(){
+        if (openSource === s.id) openSource = null;
+        delete sourceCache[s.id];
+        drop('sources', s.id);
+      });
+
+      drawPanel();
       box.appendChild(row);
     });
   }
@@ -474,12 +741,12 @@
     renderDataLine();
   }
 
-  function buildPlayer(q){
+  function buildPlayer(videoId, title){
     var wrap = el('div','panel');
     var frame = el('div','frame');
     var f = document.createElement('iframe');
-    f.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(q.vid) + '?rel=0&modestbranding=1&playsinline=1';
-    f.title = q.title || 'Video';
+    f.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) + '?rel=0&modestbranding=1&playsinline=1';
+    f.title = title || 'Video';
     f.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen';
     f.setAttribute('allowfullscreen','');
     f.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
@@ -570,7 +837,7 @@
       b.appendChild(s);
       var n = el('small', null, item.note); n.style.color='var(--muted)';
       b.appendChild(n);
-      b.addEventListener('click', function(){ $('q').value = item.q; launch(item.q); });
+      b.addEventListener('click', function(){ $('q').value = item.q; runSearch(item.q, true); });
       wrap.appendChild(b);
     });
     var again = el('button','btn quiet btn-sm','Different set');
@@ -580,6 +847,72 @@
     });
     wrap.appendChild(again);
     return wrap;
+  }
+
+  /* One list renderer for both the channel preview and the search results.
+     `key` separates the two, so playing in one collapses the player in that list
+     only. Nothing here opens YouTube unless you press the button that says so. */
+  var inlinePlaying = {};
+
+  function addToQueueQuiet(v){
+    var g = activeGoal(); if (!g) return;
+    var already = values('queue').filter(function(x){ return x.goalId === g.id && x.vid === v.id; })[0];
+    if (already){ toast('That is already in your queue.'); return; }
+    state.queue[uid()] = {
+      goalId: g.id, vid: v.id, wasShort: false, title: v.title,
+      notes: [], done: false, created: Date.now()
+    };
+    save();
+    // Only the queue is redrawn, so the list you added from stays where it was.
+    renderQueue(); renderDataLine();
+    toast('Added to the queue.');
+  }
+
+  function renderVideoList(box, videos, key){
+    box.textContent = '';
+    if (!videos.length){
+      box.appendChild(el('p','empty-state','Nothing here longer than a Short.'));
+      return;
+    }
+    videos.forEach(function(v){
+      var row = el('div','vid');
+
+      var tw = el('div','thumbwrap');
+      var img = document.createElement('img');
+      img.className = 'thumb';
+      img.src = v.thumb; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+      tw.appendChild(img);
+      if (v.seconds) tw.appendChild(el('span','len', fmtDuration(v.seconds)));
+      row.appendChild(tw);
+
+      var grow = el('div','grow');
+      grow.appendChild(el('div','vttl', v.title));
+      var bits = [];
+      if (v.channel) bits.push(v.channel);
+      var ago = agoText(v.published); if (ago) bits.push(ago);
+      grow.appendChild(el('div','vmeta', bits.join(' · ')));
+
+      var acts = el('div','vacts');
+      var play = el('button','btn quiet btn-sm', inlinePlaying[key] === v.id ? 'Stop' : 'Play here');
+      var queue = el('button','btn quiet btn-sm','Queue');
+      var out = el('button','btn quiet btn-sm','YouTube');
+      acts.appendChild(play); acts.appendChild(queue); acts.appendChild(out);
+      grow.appendChild(acts);
+
+      var host = el('div');
+      if (inlinePlaying[key] === v.id) host.appendChild(buildPlayer(v.id, v.title));
+      grow.appendChild(host);
+      row.appendChild(grow);
+
+      play.addEventListener('click', function(){
+        inlinePlaying[key] = inlinePlaying[key] === v.id ? null : v.id;
+        renderVideoList(box, videos, key);
+      });
+      queue.addEventListener('click', function(){ addToQueueQuiet(v); });
+      out.addEventListener('click', function(){ open('https://www.youtube.com/watch?v=' + v.id); });
+
+      box.appendChild(row);
+    });
   }
 
   function renderQueue(){
@@ -640,7 +973,7 @@
       }
       function drawPlayer(){
         playerHost.textContent = '';
-        if (playingId === q.id) playerHost.appendChild(buildPlayer(q));
+        if (playingId === q.id) playerHost.appendChild(buildPlayer(q.vid, q.title));
         playBtn.textContent = playingId === q.id ? 'Stop' : 'Play here';
       }
 
@@ -679,12 +1012,64 @@
   }
 
   /* ---- launching ---- */
-  function launch(rawQuery){
+  function phrase(rawQuery){
     var g = activeGoal(), q = String(rawQuery || '').trim();
-    if (!q){ toast('Type what you want to know first.'); return; }
+    if (!q) return '';
     if (g && g.lang === 'id') q += ' bahasa indonesia';
     if (g && g.lang === 'en') q += ' english';
+    return q;
+  }
+
+  /* Hands the search to YouTube. Only reached deliberately now: either there is no
+     key, or you pressed the button that says it opens YouTube. */
+  function launch(rawQuery){
+    var q = phrase(rawQuery);
+    if (!q){ toast('Type what you want to know first.'); return; }
     open(searchUrl(q, Number($('fSort').value), Number($('fUp').value), Number($('fDur').value)));
+  }
+
+  var searchToken = 0;
+  function runSearch(rawQuery, scroll){
+    var q = phrase(rawQuery);
+    if (!q){ toast('Type what you want to know first.'); return; }
+    if (!hasKey()){ launch(rawQuery); return; }
+
+    var box = $('results');
+    box.textContent = '';
+    box.appendChild(el('p','busy','Searching…'));
+
+    // A slow answer to an old query must not overwrite a newer one.
+    var mine = ++searchToken;
+    searchVideos(q).then(function(vids){
+      if (mine !== searchToken) return;
+      box.textContent = '';
+      box.appendChild(el('p','hint', vids.length
+        ? (vids.length + (vids.length === 1 ? ' result' : ' results') + ', Shorts left out.')
+        : 'Nothing longer than three minutes matched that.'));
+      var listBox = el('div');
+      box.appendChild(listBox);
+      renderVideoList(listBox, vids, 'search');
+      if (scroll) box.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    }).catch(function(e){
+      if (mine !== searchToken) return;
+      box.textContent = '';
+      box.appendChild(el('p','fail', apiProblem(e)));
+    });
+  }
+
+  function renderKey(){
+    var on = hasKey();
+    if (document.activeElement !== $('apiKey')) $('apiKey').value = apiKey();
+    $('keyState').textContent = on
+      ? 'Connected. Searches and channels open here, inside the app.'
+      : 'Not connected. Searches and channels are handed to YouTube instead.';
+    $('keyPrompt').textContent = on ? '' : 'No key yet, so searching opens YouTube. Add one under YouTube connection to keep results in here.';
+    $('keyPrompt').classList.toggle('hidden', on);
+    $('goBtn').textContent = on ? 'Search' : 'Open on YouTube';
+    $('ytBtn').classList.toggle('hidden', !on);
+    $('sourceHint').textContent = on
+      ? 'Browse shows a channel’s recent videos in here, with Shorts left out.'
+      : 'These open the channel’s Videos tab on YouTube, which never shows Shorts.';
   }
 
   /* ---- search angles, built on the phone, no network needed ---- */
@@ -810,7 +1195,7 @@
       b.appendChild(s);
       var n = el('small', null, item.note); n.style.color='var(--muted)';
       b.appendChild(n);
-      b.addEventListener('click', function(){ $('q').value = item.q; launch(item.q); });
+      b.addEventListener('click', function(){ $('q').value = item.q; runSearch(item.q); });
       box.appendChild(b);
     });
     $('angleMore').classList.remove('hidden');
@@ -836,6 +1221,7 @@
           if (o[c]) Object.keys(o[c]).forEach(function(id){ state[c][id] = o[c][id]; });
         });
         if (o.config && o.config.activeGoalId) state.config.activeGoalId = o.config.activeGoalId;
+        if (o.config && typeof o.config.apiKey === 'string') state.config.apiKey = o.config.apiKey;
         migrateQueue(state.queue);
         save(); lastGoalId = null; render();
         toast('Backup restored.');
@@ -845,8 +1231,24 @@
   }
 
   /* ---- wiring ---- */
-  $('goBtn').addEventListener('click', function(){ launch($('q').value); });
-  $('q').addEventListener('keydown', function(e){ if (e.key === 'Enter') launch($('q').value); });
+  $('goBtn').addEventListener('click', function(){ runSearch($('q').value); });
+  $('q').addEventListener('keydown', function(e){ if (e.key === 'Enter') runSearch($('q').value); });
+  $('ytBtn').addEventListener('click', function(){ launch($('q').value); });
+
+  $('keySave').addEventListener('click', function(){
+    var k = $('apiKey').value.trim();
+    setConfig({ apiKey: k });
+    $('results').textContent = '';
+    sourceCache = {};
+    toast(k ? 'Key saved. Searches stay in the app now.' : 'Key cleared.');
+  });
+  $('keyClear').addEventListener('click', function(){
+    $('apiKey').value = '';
+    openSource = null; sourceCache = {};
+    setConfig({ apiKey: '' });
+    $('results').textContent = '';
+    toast('Key removed.');
+  });
   $('fDur').addEventListener('change', renderFilterNote);
   $('angleBtn').addEventListener('click', renderAngles);
   $('angleMore').addEventListener('click', renderAngles);

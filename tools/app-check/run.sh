@@ -20,3 +20,4 @@ fi
 [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && npx playwright install chromium
 
 node app-check.js
+node api-check.js

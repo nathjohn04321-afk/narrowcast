@@ -204,6 +204,35 @@ That serves the app locally, blocks every other request, and asserts the migrati
 notes, the suggestions, the player, and that nothing but the Google Fonts stylesheet
 leaves on its own.
 
+### Channels and searches open inside the app
+
+With a YouTube Data API key pasted into *YouTube connection*, the app stops handing you
+to YouTube. **Browse** on a trusted channel resolves its uploads playlist, lists the
+recent videos with thumbnails and durations, and plays any of them in place. The search
+box returns results in the app. **Queue** on any result files it in the watch list with
+its real title, so capture no longer means copying a link and typing a name.
+
+Two things matter about how this is built.
+
+**Shorts are excluded by real duration, not by a filter parameter.** Every list runs the
+ids through `videos.list` and drops anything at or under three minutes. That is stricter
+than the old `sp=` approach, and it is why the "any length" option is now safe: there is
+nothing left for a Short to slip through. The RSS feed, which needs no key, was rejected
+for exactly this reason — it carries no duration, so Shorts cannot be filtered out of it.
+
+**Nothing is requested until you ask.** With no key the app makes no API calls at all and
+behaves exactly as it did before. With a key it still makes none until you press Browse
+or Search. The resolved uploads playlist and channel title are cached onto the saved
+channel, so a second visit costs two calls instead of three.
+
+Quota is the one thing to watch: the free allowance is 10,000 units a day, a search costs
+100 and a channel browse costs 2. When it runs out the app says so plainly and points at
+*Open this on YouTube*.
+
+The four doors stay as they are and are now labelled as the only things that leave. They
+are tied to a Google account, so no key can bring them in-app; that would need a full
+sign-in flow, which an embedded player cannot carry.
+
 ### Backup export writes a real file
 
 `exportData()` builds a `blob:` URL and clicks a generated `<a download>`. An Android
@@ -304,7 +333,7 @@ assets/                                               icon and splash sources
 scripts/build-www.js                                  refreshes www/
 scripts/make-keystore.sh                              creates the signing key
 tools/routing-check/                                  runnable link-routing test, JDK only
-tools/app-check/                                      browser test of the app itself
+tools/app-check/                                      browser tests: app-check.js and api-check.js
 android/app/src/main/java/app/narrowcast/focus/
   MainActivity.java                                   wires the WebView up
   ExternalLinks.java                                  browser-vs-app decision

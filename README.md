@@ -58,12 +58,22 @@ storage for local files. If you use this route, take a backup file often
 
 - **Add a focus** — what you're working on, what done looks like, and the words that
   belong to the topic. Everything else bends around the focus you have selected.
-- **Type a question and launch.** The search opens on YouTube with a length filter
-  attached. Shorts are three minutes or less, so a length filter removes them from the
-  results entirely — they aren't hidden, they can't be there.
+- **Add a YouTube key** under *YouTube connection* and the app stops handing you over to
+  YouTube. Searches and channels open here instead. The key is free: make a project at
+  console.cloud.google.com, switch on *YouTube Data API v3*, create an API key under
+  Credentials, paste it in. The daily allowance covers about 90 searches; opening a
+  channel costs 2. Without a key everything still works, it just opens YouTube as before.
+- **Type a question and search.** With a key the results appear in the app, with
+  thumbnails and real durations, and anything three minutes or under is dropped — so
+  Shorts cannot be there at all, whatever length filter you pick. Without a key it opens
+  YouTube with a length filter attached instead. *Open this on YouTube* is always there
+  when you want the real thing.
 - **Build search angles** turns your topic words into eight different search phrases,
-  in Indonesian, English or both, depending on the focus. Tap one to launch it.
-- **Channels you trust** open on the channel's Videos tab, which never lists Shorts.
+  in Indonesian, English or both, depending on the focus. Tap one to run it.
+- **Channels you trust** — tap **Browse** to read a channel's recent uploads inside the
+  app, Shorts already removed by their real length. Tap a video to play it here, or
+  **Queue** it with its title filled in for you. Without a key these open the channel's
+  Videos tab on YouTube instead, which never lists Shorts.
 - **Queue** is your watch list for the focus you're in. Paste a link and it lands there;
   paste a Shorts link and it gets converted into a normal video link. Each video has
   four things:
@@ -73,11 +83,12 @@ storage for local files. If you use this route, take a backup file often
   - **Notes** keeps as many dated notes per video as you want, not one box. Tap any note
     to edit it. Notes survive while a video is playing, so you can write as you watch.
   - **Related** builds follow-up search angles from the video's title and your focus
-    words, on the phone, with no connection. They are searches, not recommendations:
-    each one opens YouTube with the length filter already applied.
+    words, on the phone, with no connection. They are searches, not recommendations,
+    and they run wherever your searches run.
   - The tick marks it watched and drops it down the list.
-- **Doors** are the four YouTube entry points that don't put the recommendation feed in
-  front of you. The home page is deliberately missing.
+- **Doors** are the only thing left that leaves the app. Subscriptions, Watch later,
+  Your playlists and History are tied to your Google account, so they can only open in
+  YouTube. Everything else stays here. The home page is deliberately missing.
 
 ## Backups
 
